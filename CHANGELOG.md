@@ -3,6 +3,13 @@
 All notable changes are documented here. This file is managed by
 [knope](https://knope.tech/) from the Conventional Commits on `main`; do not edit it by
 hand.
+## 0.1.13 (2026-09-16)
+
+### Fixes
+
+- retry transient upstream clone and fetch failures
+- update rustls to fix RUSTSEC-2026-0285
+
 ## 0.1.12 (2026-09-11)
 
 ### Fixes
