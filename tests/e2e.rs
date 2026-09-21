@@ -632,6 +632,169 @@ async fn caps_want_by_sha_fetch_within_a_single_request() {
     );
 }
 
+/// `max_wants = 0` means unlimited: no per-request cap and no pruning, so every
+/// wanted merge SHA is fetched and pinned. Guards the `0 = unlimited` branch of
+/// both the fetch cap and `prune_wants`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn want_by_sha_pins_are_unlimited_when_max_wants_is_zero() {
+    use git_cache_proxy::repo;
+
+    let work = tempfile::tempdir().unwrap();
+    git(work.path(), &["init", "-q", "-b", "main", "."]);
+    std::fs::write(work.path().join("README.md"), "base\n").unwrap();
+    git(work.path(), &["add", "."]);
+    git(work.path(), &["commit", "-q", "-m", "base"]);
+
+    let up = tempfile::tempdir().unwrap();
+    let upstream_repo = up.path().join("repo.git");
+    git(
+        work.path(),
+        &[
+            "clone",
+            "-q",
+            "--mirror",
+            ".",
+            upstream_repo.to_str().unwrap(),
+        ],
+    );
+
+    // Two merge-only commits under unadvertised pull refs.
+    let mut merge_shas = Vec::new();
+    for n in 1..=2 {
+        std::fs::write(work.path().join("pr.txt"), format!("merge {n}\n")).unwrap();
+        git(work.path(), &["add", "."]);
+        git(
+            work.path(),
+            &["commit", "-q", "-m", &format!("pr-merge-{n}")],
+        );
+        merge_shas.push(git(work.path(), &["rev-parse", "HEAD"]).trim().to_string());
+        git(
+            work.path(),
+            &[
+                "push",
+                "-q",
+                upstream_repo.to_str().unwrap(),
+                &format!("HEAD:refs/pull/{n}/merge"),
+            ],
+        );
+        git(work.path(), &["reset", "-q", "--hard", "HEAD~1"]);
+    }
+    git(
+        &upstream_repo,
+        &["config", "uploadpack.hideRefs", "refs/pull"],
+    );
+    git(
+        &upstream_repo,
+        &["config", "uploadpack.allowAnySHA1InWant", "true"],
+    );
+
+    let cache = tempfile::tempdir().unwrap();
+    let metrics = Arc::new(Metrics::new());
+    let cfg = GitConfig {
+        git_binary: "git".into(),
+        upstream_auth_header: None,
+        big_file_threshold: "8m".into(),
+        fetch_ttl: Duration::from_secs(0),
+        max_wants: 0,
+    };
+    let gitcache = GitCache::new(cfg, metrics, None);
+    let upstream_base = format!("file://{}", up.path().display());
+    let repo = repo::resolve("repo.git", &upstream_base, cache.path()).unwrap();
+
+    // A single upload-pack body wanting both missing merge commits at once.
+    let mut body = Vec::new();
+    body.extend_from_slice(&pkt(&format!("want {}\n", merge_shas[0])));
+    body.extend_from_slice(&pkt(&format!("want {}\n", merge_shas[1])));
+    body.extend_from_slice(b"0000");
+    gitcache.ensure_fresh(&repo, false, &body).await.unwrap();
+
+    // Both wanted SHAs were pinned - unlimited mode neither caps nor prunes.
+    let mirror = cache.path().join("repo.git");
+    let pins = git(
+        &mirror,
+        &["for-each-ref", "--format=%(refname)", "refs/proxy-wants/"],
+    );
+    assert_eq!(
+        pins.lines().count(),
+        2,
+        "unlimited max_wants must pin every wanted sha, got: {pins:?}"
+    );
+    for sha in &merge_shas {
+        let ty = git(&mirror, &["cat-file", "-t", sha]);
+        assert_eq!(ty.trim(), "commit", "merge commit {sha} should be pinned");
+    }
+}
+
+/// A failure of the local `cat-file` object check must not sink the request: the
+/// want-miss detection is best-effort, so `ensure_wanted_oids` swallows the error
+/// and leaves upload-pack to reject the want. Uses a git shim that fails only
+/// `cat-file`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn want_by_sha_tolerates_object_check_failure() {
+    use git_cache_proxy::repo;
+    use std::os::unix::fs::PermissionsExt;
+
+    let work = tempfile::tempdir().unwrap();
+    git(work.path(), &["init", "-q", "-b", "main", "."]);
+    std::fs::write(work.path().join("README.md"), "base\n").unwrap();
+    git(work.path(), &["add", "."]);
+    git(work.path(), &["commit", "-q", "-m", "base"]);
+
+    let up = tempfile::tempdir().unwrap();
+    let upstream_repo = up.path().join("repo.git");
+    git(
+        work.path(),
+        &[
+            "clone",
+            "-q",
+            "--mirror",
+            ".",
+            upstream_repo.to_str().unwrap(),
+        ],
+    );
+
+    // A git shim that passes everything through except `cat-file`, which fails.
+    let shim = work.path().join("git-shim");
+    std::fs::write(
+        &shim,
+        "#!/bin/sh\nif [ \"$1\" = cat-file ]; then echo 'fatal: simulated cat-file failure' >&2; exit 1; fi\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let cache = tempfile::tempdir().unwrap();
+    let metrics = Arc::new(Metrics::new());
+    let cfg = GitConfig {
+        git_binary: shim.to_str().unwrap().into(),
+        upstream_auth_header: None,
+        big_file_threshold: "8m".into(),
+        fetch_ttl: Duration::from_secs(0),
+        max_wants: 100,
+    };
+    let gitcache = GitCache::new(cfg, metrics, None);
+    let upstream_base = format!("file://{}", up.path().display());
+    let repo = repo::resolve("repo.git", &upstream_base, cache.path()).unwrap();
+
+    // Some sha the client wants; the cat-file check that would classify it as
+    // missing fails first, so no upstream want-fetch is attempted.
+    let mut body = Vec::new();
+    body.extend_from_slice(&pkt(&format!("want {}\n", "a".repeat(40))));
+    body.extend_from_slice(b"0000");
+    // The cat-file failure is swallowed - ensure_fresh still succeeds.
+    gitcache.ensure_fresh(&repo, false, &body).await.unwrap();
+
+    let mirror = cache.path().join("repo.git");
+    let pins = git(
+        &mirror,
+        &["for-each-ref", "--format=%(refname)", "refs/proxy-wants/"],
+    );
+    assert!(
+        pins.trim().is_empty(),
+        "no pin should exist when the object check fails, got: {pins:?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clones_through_proxy_serves_all_refs_and_rejects_push() {
     // --- Build an upstream bare repo with a branch and a tag, not just HEAD. ---
