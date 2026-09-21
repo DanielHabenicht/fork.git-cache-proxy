@@ -97,7 +97,11 @@ clones are unaffected - they pay only a cheap local object check, never an extra
 upstream call. Each fetched SHA is pinned under a reserved ref so the mirror can
 keep serving it; `--max-wants` bounds how many such pins a mirror retains, pruning
 the oldest so they cannot accumulate without bound (like the mirror-level LRU, but
-scoped to a single mirror's pins).
+scoped to a single mirror's pins). If a single request needs more new SHAs than
+`--max-wants`, only that many are fetched and the excess wants are left to fail with
+`not our ref` (the proxy logs a `capping want-by-sha fetch` warning); such a request
+would immediately have its pins pruned anyway, so raise `--max-wants` if you expect
+that many unadvertised objects at once.
 
 ### git-LFS
 

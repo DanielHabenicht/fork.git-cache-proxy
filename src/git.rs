@@ -870,12 +870,6 @@ fn parse_wants(body: &[u8]) -> HashSet<String> {
 mod tests {
     use super::*;
 
-    /// Collect an iterator of oids into a `HashSet` for order-insensitive assertions
-    /// against `parse_wants`.
-    fn want_set<I: IntoIterator<Item = String>>(oids: I) -> HashSet<String> {
-        oids.into_iter().collect()
-    }
-
     #[test]
     fn upstream_retry_classifies_transient_diagnostics() {
         for message in [
@@ -1031,5 +1025,11 @@ mod tests {
         assert!(metrics.gather().contains(
             r#"gitcacheproxy_serve_duration_seconds_count{kind="upload_pack",repo="group/foo.git"} 1"#
         ));
+    }
+
+    /// Collect an iterator of oids into a `HashSet` for order-insensitive assertions
+    /// against `parse_wants`.
+    fn want_set<I: IntoIterator<Item = String>>(oids: I) -> HashSet<String> {
+        oids.into_iter().collect()
     }
 }
