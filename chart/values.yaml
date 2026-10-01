@@ -26,6 +26,15 @@ upstreamAuth:
   existingSecret: ""
   # Key in the Secret whose value is the full Authorization header line.
   key: auth-header
+  # Mount the Secret as a file and point the proxy at it, instead of injecting it
+  # as an env var. Use this when the credential expires while the proxy runs (a
+  # GitHub App installation token lasts an hour) and something refreshes the
+  # Secret: the kubelet re-syncs a mounted Secret in place and the proxy re-reads
+  # the file on every upstream operation, so rotation needs no restart. An env var
+  # cannot be updated in a running container, and restarting is expensive here -
+  # a new pod starts on a cold mirror and re-clones every repo.
+  mountAsFile: false
+  mountPath: /var/run/secrets/upstream-auth
 
 # Optional bearer token clients must present (Authorization: Bearer <token>),
 # sourced from a Secret. Empty serves anonymously; only safe on a
