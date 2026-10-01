@@ -35,6 +35,7 @@ use tokio::process::{ChildStdout, Command};
 use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 
+use crate::auth::AuthHeader;
 use crate::metrics::{Metrics, ServeKind, Status, UpstreamOp};
 use crate::repo::RepoRef;
 
@@ -63,9 +64,10 @@ pub enum CacheOutcome {
 #[derive(Clone)]
 pub struct GitConfig {
     pub git_binary: String,
-    /// Optional header for upstream auth, e.g. `Authorization: Bearer <token>`.
+    /// Header for upstream auth, e.g. `Authorization: Bearer <token>`, resolved
+    /// per operation so a rotating credential is picked up without a restart.
     /// Injected via env (not argv) so it never shows up in `ps`. Never logged.
-    pub upstream_auth_header: Option<String>,
+    pub upstream_auth_header: AuthHeader,
     /// git `core.bigFileThreshold` for upstream clone/fetch: blobs above it are
     /// streamed to disk rather than held in memory, bounding `index-pack` RSS on
     /// very large repos. See `Config::big_file_threshold`.
@@ -560,7 +562,7 @@ impl GitCache {
         c.env("LC_ALL", "C"); // Retry classification relies on Git's English diagnostics.
         for (k, v) in git_config_env(
             &self.cfg.big_file_threshold,
-            self.cfg.upstream_auth_header.as_deref(),
+            self.cfg.upstream_auth_header.get().as_deref(),
         ) {
             c.env(k, v);
         }
@@ -930,6 +932,51 @@ mod tests {
             [1, 2, 4],
             UPSTREAM_RETRY_DELAYS.map(|delay| delay.as_secs())
         );
+    }
+
+    #[test]
+    fn fetch_cmd_picks_up_a_rotated_auth_header_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("header");
+        std::fs::write(&path, "Authorization: Basic first").expect("write");
+
+        let cache = GitCache::new(
+            GitConfig {
+                git_binary: "git".into(),
+                upstream_auth_header: AuthHeader::file(&path),
+                big_file_threshold: "8m".into(),
+                fetch_ttl: Duration::from_secs(10),
+                max_wants: 0,
+            },
+            Arc::new(Metrics::new()),
+            None,
+        );
+
+        assert_eq!(
+            extra_header(&cache.fetch_cmd()).as_deref(),
+            Some("Authorization: Basic first")
+        );
+
+        std::fs::write(&path, "Authorization: Basic second").expect("rotate");
+        assert_eq!(
+            extra_header(&cache.fetch_cmd()).as_deref(),
+            Some("Authorization: Basic second"),
+            "a rotated credential must reach the next upstream command without a restart"
+        );
+    }
+
+    /// The `http.extraHeader` value from a command's `GIT_CONFIG_*` env pairs.
+    fn extra_header(cmd: &Command) -> Option<String> {
+        let envs: Vec<(String, String)> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+            .collect();
+        let key = envs
+            .iter()
+            .find(|(_, v)| v == "http.extraHeader")
+            .map(|(k, _)| k.replace("KEY", "VALUE"))?;
+        envs.into_iter().find(|(k, _)| *k == key).map(|(_, v)| v)
     }
 
     #[test]

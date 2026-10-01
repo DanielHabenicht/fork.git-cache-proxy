@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use git_cache_proxy::auth::AuthHeader;
 use git_cache_proxy::evict::CacheIndex;
 use git_cache_proxy::git::{GitCache, GitConfig};
 use git_cache_proxy::lfs::{Lfs, LfsConfig};
@@ -58,7 +59,7 @@ async fn upload_pack_decodes_gzip_encoded_request() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -69,7 +70,7 @@ async fn upload_pack_decodes_gzip_encoded_request() {
             LfsConfig {
                 upstream_base: format!("file://{}", up.path().display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             None,
@@ -184,7 +185,7 @@ async fn serves_want_by_sha_for_unadvertised_pull_ref() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -195,7 +196,7 @@ async fn serves_want_by_sha_for_unadvertised_pull_ref() {
             LfsConfig {
                 upstream_base: format!("file://{}", up.path().display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             None,
@@ -331,7 +332,7 @@ async fn want_by_sha_fetch_failure_is_recorded_and_degrades_gracefully() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -342,7 +343,7 @@ async fn want_by_sha_fetch_failure_is_recorded_and_degrades_gracefully() {
             LfsConfig {
                 upstream_base: format!("file://{}", up.path().display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             None,
@@ -461,7 +462,7 @@ async fn want_by_sha_pins_are_capped_per_mirror() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 1, // keep at most one pin per mirror
@@ -472,7 +473,7 @@ async fn want_by_sha_pins_are_capped_per_mirror() {
             LfsConfig {
                 upstream_base: format!("file://{}", up.path().display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             None,
@@ -603,7 +604,7 @@ async fn caps_want_by_sha_fetch_within_a_single_request() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 1,
@@ -692,7 +693,7 @@ async fn want_by_sha_pins_are_unlimited_when_max_wants_is_zero() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 0,
@@ -767,7 +768,7 @@ async fn want_by_sha_tolerates_object_check_failure() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: shim.to_str().unwrap().into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -825,7 +826,7 @@ async fn clones_through_proxy_serves_all_refs_and_rejects_push() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -840,7 +841,7 @@ async fn clones_through_proxy_serves_all_refs_and_rejects_push() {
             LfsConfig {
                 upstream_base: format!("file://{}", up.path().display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             Some(idx.clone()),
@@ -1271,7 +1272,7 @@ async fn start_proxy(up: &Path, big_file_threshold: &str) -> Proxy {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: big_file_threshold.into(),
         fetch_ttl: Duration::from_secs(0),
         max_wants: 100,
@@ -1282,7 +1283,7 @@ async fn start_proxy(up: &Path, big_file_threshold: &str) -> Proxy {
             LfsConfig {
                 upstream_base: format!("file://{}", up.display()),
                 cache_root: cache.path().to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             None,

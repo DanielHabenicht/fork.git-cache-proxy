@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
+use git_cache_proxy::auth::AuthHeader;
 use git_cache_proxy::git::{GitCache, GitConfig};
 use git_cache_proxy::lfs::{Lfs, LfsConfig};
 use git_cache_proxy::metrics::Metrics;
@@ -23,7 +24,7 @@ fn state(serve_token: Option<String>) -> AppState {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(10),
         max_wants: 100,
@@ -32,7 +33,7 @@ fn state(serve_token: Option<String>) -> AppState {
         LfsConfig {
             upstream_base: "https://upstream.invalid".into(),
             cache_root: cache_root.clone(),
-            upstream_auth_header: None,
+            upstream_auth_header: AuthHeader::none(),
             serve_token: None,
         },
         None,
@@ -212,7 +213,7 @@ async fn upstream_failure_returns_bad_gateway_and_records_error() {
     let metrics = Arc::new(Metrics::new());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(10),
         max_wants: 100,
@@ -221,7 +222,7 @@ async fn upstream_failure_returns_bad_gateway_and_records_error() {
         LfsConfig {
             upstream_base: "file:///nonexistent/git-cache-proxy-upstream".into(),
             cache_root: cache.path().to_path_buf(),
-            upstream_auth_header: None,
+            upstream_auth_header: AuthHeader::none(),
             serve_token: None,
         },
         None,
