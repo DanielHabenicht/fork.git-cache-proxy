@@ -93,6 +93,8 @@ pointing at the Service.
 | `upstream` | `https://github.com` | Origin git base URL; repo paths are appended |
 | `upstreamAuth.existingSecret` | `""` | Secret with the full upstream `Authorization` header (empty = anonymous) |
 | `upstreamAuth.key` | `auth-header` | Key in that Secret |
+| `upstreamAuth.mountAsFile` | `false` | Mount that Secret as a file instead of an env var, so a credential refreshed in place rotates without a pod restart |
+| `upstreamAuth.mountPath` | `/var/run/secrets/upstream-auth` | Directory the Secret is mounted at when `mountAsFile` |
 | `serveToken.existingSecret` | `""` | Secret with a client bearer token to require (empty = anonymous) |
 | `serveToken.key` | `token` | Key in that Secret |
 | `config.fetchTtlSeconds` | `10` | Skip upstream fetch if refreshed within this window (`0` = always) |

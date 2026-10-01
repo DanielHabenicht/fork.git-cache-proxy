@@ -76,11 +76,16 @@ spec:
             - name: GITCACHEPROXY_LOG_FORMAT
               value: {{ .Values.config.logFormat | quote }}
             {{- if .Values.upstreamAuth.existingSecret }}
+            {{- if .Values.upstreamAuth.mountAsFile }}
+            - name: GITCACHEPROXY_UPSTREAM_AUTH_HEADER_FILE
+              value: {{ printf "%s/%s" (trimSuffix "/" .Values.upstreamAuth.mountPath) .Values.upstreamAuth.key | quote }}
+            {{- else }}
             - name: GITCACHEPROXY_UPSTREAM_AUTH_HEADER
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.upstreamAuth.existingSecret | quote }}
                   key: {{ .Values.upstreamAuth.key | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.serveToken.existingSecret }}
             - name: GITCACHEPROXY_SERVE_TOKEN
@@ -123,6 +128,13 @@ spec:
               subPath: ca-certificates.crt
               readOnly: true
             {{- end }}
+            {{- if and .Values.upstreamAuth.existingSecret .Values.upstreamAuth.mountAsFile }}
+            {{- /* Whole directory, never subPath: a subPath mount is a one-time
+            copy the kubelet never refreshes, which would defeat the point. */}}
+            - name: upstream-auth
+              mountPath: {{ trimSuffix "/" .Values.upstreamAuth.mountPath | quote }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: cache
           {{- if .Values.persistence.enabled }}
@@ -139,4 +151,12 @@ spec:
             items:
               - key: {{ .Values.caTrust.key | quote }}
                 path: ca-certificates.crt
+        {{- end }}
+        {{- if and .Values.upstreamAuth.existingSecret .Values.upstreamAuth.mountAsFile }}
+        - name: upstream-auth
+          secret:
+            secretName: {{ .Values.upstreamAuth.existingSecret | quote }}
+            items:
+              - key: {{ .Values.upstreamAuth.key | quote }}
+                path: {{ .Values.upstreamAuth.key | quote }}
         {{- end }}
