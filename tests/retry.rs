@@ -8,6 +8,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+use git_cache_proxy::auth::AuthHeader;
 use git_cache_proxy::git::{CacheOutcome, GitCache, GitConfig};
 use git_cache_proxy::metrics::Metrics;
 use git_cache_proxy::repo::{RepoRef, resolve};
@@ -195,7 +196,7 @@ exec git "$@"
         let cache = GitCache::new(
             GitConfig {
                 git_binary: binary.to_str().unwrap().into(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 big_file_threshold: "8m".into(),
                 fetch_ttl: Duration::from_secs(60),
             },

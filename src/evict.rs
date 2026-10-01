@@ -398,6 +398,7 @@ mod tests {
 
     use tokio::sync::watch;
 
+    use crate::auth::AuthHeader;
     use crate::git::{GitCache, GitConfig};
 
     #[test]
@@ -609,7 +610,7 @@ mod tests {
         // Eviction never shells out to git, so the binary is irrelevant.
         GitConfig {
             git_binary: "git".into(),
-            upstream_auth_header: None,
+            upstream_auth_header: AuthHeader::none(),
             big_file_threshold: "8m".into(),
             fetch_ttl: Duration::from_secs(10),
         }

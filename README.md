@@ -185,6 +185,7 @@ Every flag has an environment-variable equivalent.
 | `--cache-root`           | `GITCACHEPROXY_CACHE_ROOT`           | `/var/cache/git-cache-proxy` | Where bare mirrors live                                                        |
 | `--upstream`             | `GITCACHEPROXY_UPSTREAM`             | - (required)                 | Origin git base URL                                                            |
 | `--upstream-auth-header` | `GITCACHEPROXY_UPSTREAM_AUTH_HEADER` | -                            | Full HTTP header injected on upstream clone/fetch, e.g. `Authorization: Basic <base64>` (see Auth model); injected via env so it stays out of argv |
+| `--upstream-auth-header-file` | `GITCACHEPROXY_UPSTREAM_AUTH_HEADER_FILE` | -                 | Read that header from a file instead, re-reading it on every upstream operation so an expiring credential can be rotated without a restart (see Auth model). Mutually exclusive with `--upstream-auth-header` |
 | `--serve-token`          | `GITCACHEPROXY_SERVE_TOKEN`          | -                            | If set, clients must send `Authorization: Bearer <token>`                      |
 | `--fetch-ttl-seconds`    | `GITCACHEPROXY_FETCH_TTL_SECONDS`    | `10`                         | Skip upstream fetch if refreshed within this window (`0` = always fetch)       |
 | `--max-concurrent-requests` | `GITCACHEPROXY_MAX_CONCURRENT_REQUESTS` | `64`                    | Max concurrent in-flight requests; excess queue (`0` = unlimited)              |
@@ -203,8 +204,43 @@ upstream counters, cache-size gauges, LFS object hit/miss counters, and
   used only to `fetch`/`clone`. It never writes upstream. The value is the full
   header line and is passed verbatim to git as `http.extraHeader`. If it is
   unset/blank the proxy warns at startup and contacts upstream anonymously.
+- **Rotating an expiring credential:** `--upstream-auth-header-file` reads the same
+  header line from a file and re-reads it on every upstream operation, so a
+  credential that expires while the proxy runs can be refreshed in place. See
+  [Rotating credentials](#rotating-credentials).
 - **Clients:** anonymous by default (intended for a network-restricted
   deployment); set `--serve-token` to require a bearer token.
+
+### Rotating credentials
+
+Some upstreams only issue short-lived credentials: a GitHub App installation token
+is valid for one hour. Restarting the proxy to pick up a new one is not a viable
+rotation strategy, because a restarted process starts on a cold mirror and re-clones
+every repo - the exact cost the proxy exists to avoid.
+
+Point `--upstream-auth-header-file` at a file instead and have whatever mints the
+credential rewrite it before it expires:
+
+```bash
+export GITCACHEPROXY_UPSTREAM_AUTH_HEADER_FILE=/var/run/secrets/upstream/auth-header
+```
+
+The file holds the same full header line as the env var, trailing newline allowed:
+
+```text
+Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hzX2V4YW1wbGU=
+```
+
+It is read on each clone/fetch and each LFS batch, so the next upstream operation
+after a rewrite uses the new value. Under Kubernetes this pairs with a Secret
+mounted as a volume, which the kubelet re-syncs in place (an env var from the same
+Secret would not update until the pod restarts).
+
+The proxy keeps serving the last value it read successfully if the file is
+momentarily unreadable, empty or mid-rewrite, so a refresher that truncates and
+rewrites in place cannot fail a fetch that would otherwise have succeeded. A value
+spanning several lines is rejected rather than sent as a malformed header. Neither
+case is silent: both log a warning.
 
 ### GitLab with a personal access token
 

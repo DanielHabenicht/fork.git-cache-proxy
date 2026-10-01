@@ -31,6 +31,7 @@ use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
+use crate::auth::AuthHeader;
 use crate::evict::CacheIndex;
 use crate::repo;
 
@@ -54,9 +55,9 @@ pub struct LfsConfig {
     /// Upstream base URL, trailing slash trimmed (same value the git side uses).
     pub upstream_base: String,
     pub cache_root: PathBuf,
-    /// Full upstream auth header line (e.g. `Authorization: Basic <b64>`), or `None`
-    /// for anonymous.
-    pub upstream_auth_header: Option<String>,
+    /// Full upstream auth header line (e.g. `Authorization: Basic <b64>`), resolved
+    /// per request; empty for anonymous.
+    pub upstream_auth_header: AuthHeader,
     /// The proxy's own serve token, if configured; embedded in each rewritten download
     /// action so git-lfs re-presents it on the (auth-checked) object GET.
     pub serve_token: Option<String>,
@@ -224,8 +225,8 @@ impl Lfs {
             .header(CONTENT_TYPE, LFS_CONTENT_TYPE)
             .header(ACCEPT, LFS_CONTENT_TYPE)
             .body(body.to_vec());
-        if let Some(line) = &self.cfg.upstream_auth_header
-            && let Some((name, value)) = parse_header_line(line)
+        if let Some(line) = self.cfg.upstream_auth_header.get()
+            && let Some((name, value)) = parse_header_line(&line)
         {
             req = req.header(name, value);
         }

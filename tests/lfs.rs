@@ -15,6 +15,7 @@ use axum::extract::State;
 use axum::http::{Method, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
+use git_cache_proxy::auth::AuthHeader;
 use git_cache_proxy::evict::CacheIndex;
 use git_cache_proxy::git::{GitCache, GitConfig};
 use git_cache_proxy::lfs::{Lfs, LfsConfig};
@@ -335,7 +336,7 @@ fn proxy_state(addr: SocketAddr, cache: &std::path::Path, metrics: Arc<Metrics>)
     let idx = CacheIndex::new(cache.to_path_buf(), u64::MAX, metrics.clone());
     let cfg = GitConfig {
         git_binary: "git".into(),
-        upstream_auth_header: None,
+        upstream_auth_header: AuthHeader::none(),
         big_file_threshold: "8m".into(),
         fetch_ttl: Duration::from_secs(10),
     };
@@ -345,7 +346,7 @@ fn proxy_state(addr: SocketAddr, cache: &std::path::Path, metrics: Arc<Metrics>)
             LfsConfig {
                 upstream_base: upstream.clone(),
                 cache_root: cache.to_path_buf(),
-                upstream_auth_header: None,
+                upstream_auth_header: AuthHeader::none(),
                 serve_token: None,
             },
             Some(idx),

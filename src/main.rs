@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+use git_cache_proxy::auth::AuthHeader;
 use git_cache_proxy::config::{Config, LogFormat};
 use git_cache_proxy::{evict, git, lfs, metrics, repo, server};
 
@@ -28,22 +29,24 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("create cache root {}", cfg.cache_root.display()))?;
 
-    // Normalize the upstream auth header: an env var set to an empty string
+    // A blank value collapses to anonymous: an env var set to an empty string
     // (the classic `-e VAR="$UNSET"` footgun) parses as `Some("")`, which would
-    // inject a blank `http.extraHeader` - auth-less, but silently so. Collapse
-    // any blank value to `None` and warn, so a missing token is visible at
-    // startup instead of surfacing later as an upstream 401.
-    let upstream_auth_header = cfg
-        .upstream_auth_header
-        .as_deref()
-        .map(str::trim)
-        .filter(|h| !h.is_empty())
-        .map(str::to_string);
-    if upstream_auth_header.is_none() {
+    // inject a blank `http.extraHeader` - auth-less, but silently so. Warn so a
+    // missing token is visible at startup instead of surfacing later as an
+    // upstream 401. For the file source this is a snapshot, not a verdict: the
+    // file is re-read per operation, so a refresher that has not written yet
+    // clears the warning on its own.
+    let upstream_auth_header = match (&cfg.upstream_auth_header, &cfg.upstream_auth_header_file) {
+        (_, Some(path)) => AuthHeader::file(path),
+        (Some(line), None) => AuthHeader::fixed(line),
+        (None, None) => AuthHeader::none(),
+    };
+    if upstream_auth_header.is_empty() {
         tracing::warn!(
             "no upstream auth header set; contacting upstream anonymously - \
              private repos will fail with an upstream 401 \
-             (set --upstream-auth-header / GITCACHEPROXY_UPSTREAM_AUTH_HEADER)"
+             (set --upstream-auth-header / GITCACHEPROXY_UPSTREAM_AUTH_HEADER, \
+             or --upstream-auth-header-file for a credential that expires)"
         );
     }
 

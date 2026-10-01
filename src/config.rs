@@ -49,6 +49,18 @@ pub struct Config {
     )]
     pub upstream_auth_header: Option<String>,
 
+    /// Read the upstream auth header from this file instead of the flag/env, and
+    /// re-read it on every upstream operation. For credentials that expire while
+    /// the proxy runs (a GitHub App installation token lasts an hour): an external
+    /// refresher rewrites the file and the next fetch picks it up, with no restart
+    /// and so no cold mirror. Mutually exclusive with `--upstream-auth-header`.
+    #[arg(
+        long,
+        env = "GITCACHEPROXY_UPSTREAM_AUTH_HEADER_FILE",
+        conflicts_with = "upstream_auth_header"
+    )]
+    pub upstream_auth_header_file: Option<PathBuf>,
+
     /// Optional bearer token clients must present (`Authorization: Bearer ...`).
     /// Unset = serve anonymously (intended for a network-restricted deployment).
     #[arg(long, env = "GITCACHEPROXY_SERVE_TOKEN", hide_env_values = true)]
@@ -114,4 +126,30 @@ pub struct Config {
         default_value = "text"
     )]
     pub log_format: LogFormat,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_header_and_auth_header_file_are_mutually_exclusive() {
+        let base = ["git-cache-proxy", "--upstream", "https://git.example.com"];
+
+        assert!(
+            Config::try_parse_from(base.iter().chain(&["--upstream-auth-header-file", "/t/h"]))
+                .is_ok()
+        );
+        assert!(
+            Config::try_parse_from(base.iter().chain(&[
+                "--upstream-auth-header",
+                "Authorization: Basic xyz",
+                "--upstream-auth-header-file",
+                "/t/h",
+            ]))
+            .is_err(),
+            "one credential source at a time: a silent winner between the two would \
+             be a confusing way to find out which token is in use"
+        );
+    }
 }
